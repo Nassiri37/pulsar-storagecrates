@@ -59,28 +59,38 @@ local function NormalizeModel(model)
     return model
 end
 
+_setupBusy = _setupBusy or false
+
 RegisterNetEvent('StorageCrates:Client:SetupCrates', function(crates)
     CreateThread(function()
+        if _setupBusy then return end
+        _setupBusy = true
+
         if not crates or next(crates) == nil then
             print("[STORAGE-CRATES CLIENT] Received empty crates table")
+            _setupBusy = false
             return
         end
-        
+
         local crateCount = 0
         for _ in pairs(crates) do crateCount = crateCount + 1 end
         print("[STORAGE-CRATES CLIENT] Received " .. crateCount .. " crates")
-        
-        -- Clean up any existing crates first (in case of restart)
+
+        -- Remove tracked crates that are no longer in the payload
         for crateId, crateData in pairs(_crates) do
-            if crateData.entity and DoesEntityExist(crateData.entity) then
-                DeleteObject(crateData.entity)
+            if not crates[crateId] then
+                if crateData.entity and DoesEntityExist(crateData.entity) then
+                    NetworkRequestControlOfEntity(crateData.entity)
+                    SetEntityAsMissionEntity(crateData.entity, true, true)
+                    DeleteEntity(crateData.entity)
+                    if DoesEntityExist(crateData.entity) then
+                        DeleteObject(crateData.entity)
+                    end
+                end
+                _crates[crateId] = nil
             end
         end
 
-        for k in pairs(_crates) do
-            _crates[k] = nil
-        end
-        
         for crateId, crateData in pairs(crates) do
             if not crateData then
                 print("[STORAGE-CRATES CLIENT] WARNING: crateData is nil for crateId:", crateId)
@@ -159,6 +169,7 @@ RegisterNetEvent('StorageCrates:Client:SetupCrates', function(crates)
             ::continue::
         end
         print("[STORAGE-CRATES CLIENT] Finished setting up " .. crateCount .. " crates")
+        _setupBusy = false
         Wait(2000)
         TriggerServerEvent('StorageCrates:Server:RequestCrateInfo')
     end)
@@ -207,11 +218,12 @@ RegisterNetEvent('StorageCrates:Client:SpawnCrate', function(crateId, data)
     end
 end)
 
-local function DeleteCrateEntity(crateId)
+local function DeleteCrateEntity(crateId, snap)
     local crateData = _crates and _crates[crateId]
-    if not crateData then return end
-    local entity = crateData.entity
-    if (not entity or not DoesEntityExist(entity)) and crateData.netId then
+    local entity = crateData and crateData.entity
+    local removed = false
+
+    if (not entity or not DoesEntityExist(entity)) and crateData and crateData.netId then
         local entFromNet = NetworkGetEntityFromNetworkId(crateData.netId)
         if entFromNet and DoesEntityExist(entFromNet) then
             entity = entFromNet
@@ -223,7 +235,7 @@ local function DeleteCrateEntity(crateId)
         while not NetworkHasControlOfEntity(entity) and tries < 50 do
             NetworkRequestControlOfEntity(entity)
             Wait(10)
-            tries += 1
+            tries = tries + 1
         end
 
         SetEntityAsMissionEntity(entity, true, true)
@@ -232,12 +244,38 @@ local function DeleteCrateEntity(crateId)
         if DoesEntityExist(entity) then
             DeleteObject(entity)
         end
+        removed = DoesEntityExist(entity) == false
     end
 
-    _crates[crateId] = nil
+    local sweepCoords = (snap and snap.coords) or (crateData and crateData.coords)
+    local sweepModel = NormalizeModel((snap and snap.model) or (crateData and crateData.model))
+
+    if crateData then
+        _crates[crateId] = nil
+    end
+
+    if sweepCoords and sweepModel and LoadModel(sweepModel) then
+        for _ = 1, 4 do
+            local closest = GetClosestObjectOfType(sweepCoords.x + 0.0, sweepCoords.y + 0.0, sweepCoords.z + 0.0, 5.0, sweepModel, false, false, false)
+            if not closest or closest == 0 or not DoesEntityExist(closest) then break end
+
+            local tries = 0
+            while not NetworkHasControlOfEntity(closest) and tries < 25 do
+                NetworkRequestControlOfEntity(closest)
+                Wait(10)
+                tries = tries + 1
+            end
+            SetEntityAsMissionEntity(closest, true, true)
+            FreezeEntityPosition(closest, false)
+            DeleteEntity(closest)
+            if DoesEntityExist(closest) then
+                DeleteObject(closest)
+            end
+        end
+    end
 end
 
-RegisterNetEvent('StorageCrates:Client:RemoveCrate', function(crateId)
+RegisterNetEvent('StorageCrates:Client:RemoveCrate', function(crateId, snap)
     if _targets and _targets[crateId] then
         local entity = _targets[crateId]
         if DoesEntityExist(entity) then
@@ -247,7 +285,7 @@ RegisterNetEvent('StorageCrates:Client:RemoveCrate', function(crateId)
         end
         _targets[crateId] = nil
     end
-    DeleteCrateEntity(crateId)
+    DeleteCrateEntity(crateId, snap)
 end)
 
 CreateThread(function()

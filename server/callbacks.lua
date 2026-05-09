@@ -97,6 +97,27 @@ local function RemoveCrateItem(src, sid, item, slot)
     return removed, err or "Failed to remove crate item"
 end
 
+local function CrateStashIsEmpty(crateId)
+    local items = exports.ox_inventory:GetInventoryItems("crate:" .. crateId)
+    if not items then return true end
+    for _, slot in pairs(items) do
+        if slot and slot.name and (slot.count or 0) > 0 then
+            return false
+        end
+    end
+    return true
+end
+
+local function GivePlayerCrateItem(source, tierItemName)
+    local ok, success, response = pcall(function()
+        return exports.ox_inventory:AddItem(source, tierItemName, 1, {})
+    end)
+    if not ok then
+        return false, tostring(success)
+    end
+    return success, response
+end
+
 Callbacks:RegisterServerCallback("StorageCrates:PlaceCrate", function(source, data, cb)
     local char, sid = GetPlayerSid(source)
 
@@ -158,10 +179,7 @@ Callbacks:RegisterServerCallback("StorageCrates:PlaceCrate", function(source, da
     })
 
     if not inserted then
-        pcall(function()
-            exports.ox_inventory:AddItem(sid, tier, 1, {}, 1)
-        end)
-
+        GivePlayerCrateItem(source, tier)
         cb(false, "Failed to save crate")
         return
     end
@@ -312,24 +330,51 @@ Callbacks:RegisterServerCallback("StorageCrates:RemoveCrate", function(source, d
         return
     end
 
-    local stashId = "crate:" .. crateId
-    local items = exports.ox_inventory:GetInventoryItems(stashId)
-
-    if items then
-        for _ in pairs(items) do
-            cb(false, "Crate must be empty before removing")
-            return
-        end
+    if not CrateStashIsEmpty(crateId) then
+        cb(false, "Crate must be empty before removing")
+        return
     end
 
-    MySQL.Sync.execute("DELETE FROM storage_crates WHERE crate_id = ?", { crateId })
+    local tierItem = crate.tier
+    if not tierItem or not Config.CrateTiers[tierItem] then
+        cb(false, "Invalid crate tier")
+        return
+    end
+
+    local added, addErr = GivePlayerCrateItem(source, tierItem)
+    if not added then
+        local msg = type(addErr) == "string" and addErr or "Could not return crate item (inventory full?)"
+        cb(false, msg)
+        return
+    end
+
+    local snap = {
+        coords = {
+            x = crate.coords.x,
+            y = crate.coords.y,
+            z = crate.coords.z,
+        },
+        heading = crate.heading or 0.0,
+        model = crate.model,
+    }
+
+    SendCrateToRoute("StorageCrates:Client:RemoveCrate", crate.route or 0, crateId, snap)
+
+    local deletedRows = MySQL.Sync.execute("DELETE FROM storage_crates WHERE crate_id = ?", { crateId })
+    local deleteOk = (type(deletedRows) == "number" and deletedRows >= 1) or deletedRows == true
+    if not deleteOk then
+        exports.ox_inventory:Remove(source, 1, tierItem, 1)
+        SendCrateToRoute("StorageCrates:Client:SpawnCrate", crate.route or 0, crateId, {
+            model = crate.model,
+            coords = snap.coords,
+            heading = snap.heading,
+        })
+        cb(false, "Failed to remove crate from database")
+        return
+    end
 
     _activeCrates[crateId] = nil
     SetCrateInUse(crateId, nil)
-
-    SendCrateToRoute("StorageCrates:Client:RemoveCrate", crate.route or 0, crateId)
-
-    exports.ox_inventory:AddItem(sid, crate.tier, 1, {}, 1)
 
     cb(true)
 end)
