@@ -90,6 +90,7 @@ Add the following items to your ox_inventory items file.
     weight = 2,
 },
 ```
+Add all images from the `invimages` folder into `ox_inventory/web/images`
 
 ---
 
