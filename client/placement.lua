@@ -47,7 +47,7 @@ RegisterNetEvent("StorageCrates:Client:StartPlacement", function(tier, slot)
 
     exports["pulsar-hud"]:ActionShow(
         ACTION_ID,
-        "{keybind}primary_action{/keybind} Place Storage Crate | {keybind}cancel_action{/keybind} Cancel"
+        "{keybind}primary_action{/keybind} Place Storage Crate | {keybind}cancel_action{/keybind} Cancel | Scroll Wheel to Rotate"
     )
 
     local ok, err = pcall(function()
