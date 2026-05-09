@@ -1,7 +1,7 @@
 fx_version "cerulean"
 games { "gta5" }
 
-author "Pulsar Framework"
+author "Nass"
 version "1.0.0"
 
 dependencies {

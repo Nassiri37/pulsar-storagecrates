@@ -284,6 +284,19 @@ function RemoveCrate(crateId)
     _removeInProgress = _removeInProgress or {}
     if _removeInProgress[crateId] then return end
     _removeInProgress[crateId] = true
+
+    local ped = PlayerPedId()
+    ClearPedSecondaryTask(ped)
+    ClearPedTasksImmediately(ped)
+
+    local dict = "anim@amb@clubhouse@tutorial@bkr_tut_ig3@"
+    RequestAnimDict(dict)
+    local tries = 0
+    while not HasAnimDictLoaded(dict) and tries < 50 do
+        Wait(20)
+        tries = tries + 1
+    end
+
     Progress:Progress({
         name = 'pickup_crate_' .. crateId,
         duration = 3500,
@@ -297,7 +310,7 @@ function RemoveCrate(crateId)
             disableCombat = true,
         },
         animation = {
-            animDict = "anim@amb@clubhouse@tutorial@bkr_tut_ig3@",
+            animDict = dict,
             anim = "machinic_loop_mechandplayer",
             flags = 49,
         },
