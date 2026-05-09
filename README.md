@@ -126,6 +126,9 @@ Add all images from the `invimages` folder into `ox_inventory/web/images`
 - All placed crates restore automatically after server restart
 
 ---
+# Issues
+If any issues persist please contact me through Pulsar FW discord or open an issue on git
+---
 
 # Framework
 
