@@ -8,6 +8,12 @@ Built for Pulsar FW with ox_inventory integration.
 
 ---
 
+# Preview
+
+https://www.youtube.com/watch?v=biHyLMVGZOw&feature=youtu.be
+
+---
+
 # Features
 
 - Placeable storage crates
