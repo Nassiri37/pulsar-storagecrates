@@ -75,19 +75,19 @@ AddEventHandler('StorageCrates:Client:FinishPlacement', function(data, endCoords
             task = 'CODE_HUMAN_MEDIC_KNEEL',
         },
     }, function(wasCancelled)
-        if not wasCancelled then
-            Callbacks:ServerCallback("StorageCrates:PlaceCrate", {
-                tier = tier,
-                coords = endCoords.coords,
-                heading = endCoords.heading or 0.0,
-                slot = slot,
-            }, function(success, errorMsg)
-                if success then
-                    exports['pulsar-hud']:Notification("success", "Crate placed successfully!", 5000)
-                else
-                    exports['pulsar-hud']:Notification("error", errorMsg or "Failed to place crate", 5000)
-                end
-            end)
-        end
+        ClearPedTasksImmediately(PlayerPedId())
+        if wasCancelled then return end
+        Callbacks:ServerCallback("StorageCrates:PlaceCrate", {
+            tier = tier,
+            coords = endCoords.coords,
+            heading = endCoords.heading or 0.0,
+            slot = slot,
+        }, function(success, errorMsg)
+            if success then
+                exports['pulsar-hud']:Notification("success", "Crate placed successfully!", 5000)
+            else
+                exports['pulsar-hud']:Notification("error", errorMsg or "Failed to place crate", 5000)
+            end
+        end)
     end)
 end)

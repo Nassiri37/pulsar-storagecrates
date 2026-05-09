@@ -303,13 +303,9 @@ function RemoveCrate(crateId)
         },
     }, function(wasCancelled)
         _removeInProgress[crateId] = nil
+        ClearPedTasksImmediately(PlayerPedId())
 
-        if wasCancelled then
-            ClearPedTasksImmediately(PlayerPedId())
-            return
-        end
-
-        ClearPedTasks(PlayerPedId())
+        if wasCancelled then return end
 
         Callbacks:ServerCallback("StorageCrates:RemoveCrate", {
             crateId = crateId,
@@ -348,6 +344,7 @@ function LockpickCrate(crateId)
                     end)
                     SetNuiFocus(false, false)
                     SetNuiFocusKeepInput(false)
+                    ClearPedTasksImmediately(PlayerPedId())
                     Callbacks:ServerCallback("StorageCrates:CompleteLockpick", {
                         crateId = crateId,
                         success = true,
@@ -367,7 +364,7 @@ function LockpickCrate(crateId)
                 end)
                 SetNuiFocus(false, false)
                 SetNuiFocusKeepInput(false)
-                -- Minigame failed
+                ClearPedTasksImmediately(PlayerPedId())
                 Callbacks:ServerCallback("StorageCrates:CompleteLockpick", {
                     crateId = crateId,
                     success = false,
