@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS `storage_crates` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `owner_sid` (`owner_sid`),
-    KEY `crate_id` (`crate_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
