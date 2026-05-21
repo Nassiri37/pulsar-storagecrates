@@ -42,7 +42,6 @@ function LoadModel(model)
         Wait(10)
         timeout = timeout + 1
         if timeout > 500 then -- ~5s
-            print("[STORAGE-CRATES CLIENT] ERROR: Model failed to load:", model)
             return false
         end
     end
@@ -67,14 +66,13 @@ RegisterNetEvent('StorageCrates:Client:SetupCrates', function(crates)
         _setupBusy = true
 
         if not crates or next(crates) == nil then
-            print("[STORAGE-CRATES CLIENT] Received empty crates table")
             _setupBusy = false
             return
         end
 
         local crateCount = 0
         for _ in pairs(crates) do crateCount = crateCount + 1 end
-        print("[STORAGE-CRATES CLIENT] Received " .. crateCount .. " crates")
+
 
         -- Remove tracked crates that are no longer in the payload
         for crateId, crateData in pairs(_crates) do
@@ -93,28 +91,23 @@ RegisterNetEvent('StorageCrates:Client:SetupCrates', function(crates)
 
         for crateId, crateData in pairs(crates) do
             if not crateData then
-                print("[STORAGE-CRATES CLIENT] WARNING: crateData is nil for crateId:", crateId)
                 goto continue
             end
             
             if _crates[crateId] and _crates[crateId].entity and DoesEntityExist(_crates[crateId].entity) then
-                print("[STORAGE-CRATES CLIENT] Crate already spawned:", crateId, "skipping")
                 goto continue
             end
             
             if not crateData.coords or not crateData.coords.x then
-                print("[STORAGE-CRATES CLIENT] WARNING: Invalid coords for crateId:", crateId, "coords type:", type(crateData.coords))
                 goto continue
             end
             
             local model = NormalizeModel(crateData.model)
             if not model then
-                print("[STORAGE-CRATES CLIENT] WARNING: No model for crateId:", crateId)
                 goto continue
             end
 
             if not LoadModel(model) then
-                print("[STORAGE-CRATES CLIENT] ERROR: Skipping crate due to model load failure:", crateId, model)
                 goto continue
             end
             
@@ -131,7 +124,6 @@ RegisterNetEvent('StorageCrates:Client:SetupCrates', function(crates)
             end
             
             if not DoesEntityExist(obj) then
-                print("[STORAGE-CRATES CLIENT] ERROR: Failed to create entity for crate:", crateId)
                 goto continue
             end
             
@@ -176,18 +168,14 @@ RegisterNetEvent('StorageCrates:Client:SetupCrates', function(crates)
 end)
 
 RegisterNetEvent('StorageCrates:Client:SpawnCrate', function(crateId, data)
-    print("[STORAGE-CRATES CLIENT] Spawning crate:", crateId)
     if _crates[crateId] then 
-        print("[STORAGE-CRATES CLIENT] Crate already spawned:", crateId)
         return 
     end
     local model = NormalizeModel(data.model)
     if not model then
-        print("[STORAGE-CRATES CLIENT] ERROR: No model for SpawnCrate:", crateId)
         return
     end
     if not LoadModel(model) then
-        print("[STORAGE-CRATES CLIENT] ERROR: Model failed to load for SpawnCrate:", crateId, model)
         return
     end
     local obj = CreateObject(model, data.coords.x, data.coords.y, data.coords.z, true, true, false)
@@ -198,7 +186,6 @@ RegisterNetEvent('StorageCrates:Client:SpawnCrate', function(crateId, data)
         timeout = timeout + 1
     end
     if DoesEntityExist(obj) then
-        print("[STORAGE-CRATES CLIENT] Crate entity created successfully:", crateId, "entity:", obj)
         _crates[crateId] = {
             entity = obj,
             coords = data.coords,
@@ -310,7 +297,6 @@ CreateThread(function()
                         end
                     else
                         -- Entity disappeared, recreate it
-                        print("[STORAGE-CRATES CLIENT] Entity missing for crate:", crateId, "recreating...")
                         local model = NormalizeModel(crateData.model)
                         if not model then
                             print("[STORAGE-CRATES CLIENT] ERROR: Missing model for recreate:", crateId)
@@ -357,7 +343,6 @@ end)
 
 
 RegisterNetEvent('StorageCrates:Client:OpenStash', function(stashId)
-    print("[STORAGE-CRATES CLIENT] Opening stash:", stashId)
     if not stashId or (type(stashId) ~= 'string' and type(stashId) ~= 'number') then
         warn('[pulsar-storagecrates] Invalid stashId:', stashId)
         return
