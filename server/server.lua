@@ -40,6 +40,41 @@ local function GetRoute(source)
     return GetPlayerRoutingBucket(source) or 0
 end
 
+local function SendCrateToRoute(eventName, route, crateId, data)
+    for _, player in ipairs(GetPlayers()) do
+        local target = tonumber(player)
+
+        if target and (GetPlayerRoutingBucket(target) or 0) == route then
+            TriggerClientEvent(eventName, target, crateId, data)
+        end
+    end
+end
+
+local function ClearCrateStash(crateId)
+    local stashId = "crate:" .. crateId
+
+    local cleared = pcall(function()
+        exports.ox_inventory:ClearInventory(stashId)
+    end)
+
+    if cleared then
+        return
+    end
+
+    local items = exports.ox_inventory:GetInventoryItems(stashId)
+    if not items then
+        return
+    end
+
+    for _, slot in pairs(items) do
+        if slot and slot.name and (slot.count or 0) > 0 then
+            pcall(function()
+                exports.ox_inventory:RemoveItem(stashId, slot.name, slot.count)
+            end)
+        end
+    end
+end
+
 local function FilterCratesForRoute(route)
     local filtered = {}
     for crateId, crate in pairs(_activeCrates) do
@@ -293,8 +328,98 @@ RegisterNetEvent('StorageCrates:Server:InventoryClosed', function()
     end
 end)
 
+function AdminRemoveCrateEntity(crateId)
+    local crate = GetCrateInfo(crateId)
+    if not crate then
+        return false, "Crate not found in active cache"
+    end
+
+    local snap = {
+        coords = {
+            x = crate.coords.x,
+            y = crate.coords.y,
+            z = crate.coords.z,
+        },
+        heading = crate.heading or 0.0,
+        model = crate.model,
+    }
+
+    SendCrateToRoute("StorageCrates:Client:RemoveCrate", crate.route or 0, crateId, snap)
+    return true
+end
+
+function AdminDeleteCrate(crateId)
+    local crate = GetCrateInfo(crateId)
+    local route = crate and (crate.route or 0) or 0
+    local snap
+
+    if crate then
+        snap = {
+            coords = {
+                x = crate.coords.x,
+                y = crate.coords.y,
+                z = crate.coords.z,
+            },
+            heading = crate.heading or 0.0,
+            model = crate.model,
+        }
+
+        if IsCrateInUse(crateId) then
+            SetCrateInUse(crateId, nil)
+        end
+
+        SendCrateToRoute("StorageCrates:Client:RemoveCrate", route, crateId, snap)
+    else
+        local row = MySQL.Sync.fetchAll(
+            "SELECT coords, heading, model FROM storage_crates WHERE crate_id = ? LIMIT 1",
+            { crateId }
+        )
+
+        if row and row[1] then
+            local success, coords = pcall(json.decode, row[1].coords)
+
+            if success and coords and coords.x then
+                route = tonumber(coords.route) or 0
+                snap = {
+                    coords = {
+                        x = coords.x,
+                        y = coords.y,
+                        z = coords.z,
+                    },
+                    heading = row[1].heading or 0.0,
+                    model = tonumber(row[1].model) or row[1].model,
+                }
+                SendCrateToRoute("StorageCrates:Client:RemoveCrate", route, crateId, snap)
+            end
+        end
+    end
+
+    ClearCrateStash(crateId)
+
+    local deletedRows = MySQL.Sync.execute("DELETE FROM storage_crates WHERE crate_id = ?", { crateId })
+    local deleteOk = (type(deletedRows) == "number" and deletedRows >= 1) or deletedRows == true
+
+    if not deleteOk then
+        if crate and snap then
+            SendCrateToRoute("StorageCrates:Client:SpawnCrate", route, crateId, {
+                model = snap.model,
+                coords = snap.coords,
+                heading = snap.heading,
+            })
+        end
+        return false, "Failed to remove crate from database"
+    end
+
+    _activeCrates[crateId] = nil
+    SetCrateInUse(crateId, nil)
+
+    return true
+end
+
 exports('GetCrateInfo', GetCrateInfo)
 exports('IsCrateInUse', IsCrateInUse)
 exports('SetCrateInUse', SetCrateInUse)
 exports('EnsureStashExists', EnsureStashExists)
-
+exports('AdminDeleteCrate', AdminDeleteCrate)
+exports('AdminRemoveCrateEntity', AdminRemoveCrateEntity)
+exports('ReloadAllCrates', LoadAllCrates)
