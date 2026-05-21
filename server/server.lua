@@ -1,4 +1,3 @@
-print("[STORAGE-CRATES] server.lua loaded")
 
 _activeCrates = _activeCrates or {} 
 _cratesInUse = _cratesInUse or {} 
@@ -119,7 +118,6 @@ function LoadAllCrates()
         for _, crate in ipairs(crates) do
             local success, coords = pcall(json.decode, crate.coords)
             if not success or not coords or not coords.x then
-                print("[STORAGE-CRATES] ERROR: Invalid coords for crate " .. (crate.crate_id or "unknown") .. ": " .. tostring(crate.coords))
                 goto continue
             end
             
@@ -147,7 +145,6 @@ function LoadAllCrates()
         
         local loadedCount = 0
         for _ in pairs(_activeCrates) do loadedCount = loadedCount + 1 end
-        print("[STORAGE-CRATES] Restored " .. loadedCount .. " Storage Crates in cache")
         Wait(2000) 
         local players = GetPlayers()
         for _, playerId in ipairs(players) do
@@ -171,7 +168,6 @@ end
 function EnsureStashExists(crateId, tier)
     local tierConfig = Config.CrateTiers[tier]
     if not tierConfig then 
-        print("[STORAGE-CRATES] ERROR: Invalid tier for stash:", tier)
         return 
     end
     local stashId = "crate:" .. crateId
@@ -180,7 +176,6 @@ function EnsureStashExists(crateId, tier)
     end)
     
     if not success then
-        print("[STORAGE-CRATES] ERROR registering stash:", err)
         pcall(function()
             exports.ox_inventory:CreateTemporaryStash({
                 id = stashId,
@@ -218,7 +213,6 @@ AddEventHandler('ox_inventory:closedInventory', function(playerId, inventoryId)
     local crateId = inventoryId:sub(7)
     if crateId and _cratesInUse[crateId] == playerId then
         SetCrateInUse(crateId, nil)
-        print("[STORAGE-CRATES] Cleared in-use flag (ox_inventory closed) crate:", crateId, "player:", playerId)
     end
 end)
 
@@ -243,9 +237,6 @@ RegisterNetEvent('StorageCrates:Server:RequestCrateInfo', function()
     if ownerSid and next(_activeCrates) then
         for crateId, crate in pairs(_activeCrates) do
             if not SidEquals(crate.ownerSid, ownerSid) then
-                print(("[STORAGE-CRATES] Owner mismatch? playerSID=%s crate=%s crateOwner=%s"):format(
-                    tostring(ownerSid), tostring(crateId), tostring(crate.ownerSid)
-                ))
                 break
             end
         end
@@ -259,7 +250,6 @@ exports['pulsar-core']:MiddlewareAdd("Characters:Spawning", function(source)
     if _activeCrates and next(_activeCrates) then
         local route = GetRoute(source)
         local filtered = FilterCratesForRoute(route)
-        print(("[STORAGE-CRATES] Sending crates to player %d (on spawn route=%d)"):format(source, route))
         local preparedCrates = PrepareCratesForClient(filtered)
         TriggerLatentClientEvent('StorageCrates:Client:SetupCrates', source, 50000, preparedCrates)
     end
@@ -269,7 +259,6 @@ end, 1)
 RegisterNetEvent('StorageCrates:Server:RequestCrates', function()
     local source = source
     if not _activeCrates or next(_activeCrates) == nil then
-        print("[STORAGE-CRATES] Cache empty, reloading from DB for late-joiner:", source)
         LoadAllCrates()
         Wait(500) 
     end
@@ -279,11 +268,9 @@ RegisterNetEvent('StorageCrates:Server:RequestCrates', function()
         local filtered = FilterCratesForRoute(route)
         local crateCount = 0
         for _ in pairs(filtered) do crateCount = crateCount + 1 end
-        print(("[STORAGE-CRATES] Sending %d crates to player %d (late-join sync route=%d)"):format(crateCount, source, route))
         local preparedCrates = PrepareCratesForClient(filtered)
         TriggerLatentClientEvent('StorageCrates:Client:SetupCrates', source, 50000, preparedCrates)
     else
-        print("[STORAGE-CRATES] No crates to send to player " .. source .. " (cache empty)")
     end
 end)
 
@@ -302,7 +289,6 @@ RegisterNetEvent('StorageCrates:Server:InventoryClosed', function()
     for crateId, userId in pairs(_cratesInUse) do
         if userId == source then
             SetCrateInUse(crateId, nil)
-            print("[STORAGE-CRATES] Cleared in-use flag for crate:", crateId, "player:", source)
         end
     end
 end)
