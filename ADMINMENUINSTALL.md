@@ -69,7 +69,7 @@ end
 
 ---
 
-# 3. Edit `ui/src/containers/groups/links.js`
+# 3. Edit `ui/src/containers/groups/staff.jsx`
 
 ## Add Import
 
