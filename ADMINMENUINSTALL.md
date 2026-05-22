@@ -104,6 +104,7 @@ Add underneath:
 ---
 
 ## Add Sidebar Button
+Edit `ui/src/containers/groups/links.js`
 
 Find:
 
