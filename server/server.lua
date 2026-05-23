@@ -36,18 +36,13 @@ local function ToBool(v)
     return false
 end
 
-local function GetRoute(source)
-    return GetPlayerRoutingBucket(source) or 0
+local function GetPlayerContext(source)
+    return InteriorRouting.GetPlayerInteriorContext(source)
 end
 
-local function SendCrateToRoute(eventName, route, crateId, data)
-    for _, player in ipairs(GetPlayers()) do
-        local target = tonumber(player)
-
-        if target and (GetPlayerRoutingBucket(target) or 0) == route then
-            TriggerClientEvent(eventName, target, crateId, data)
-        end
-    end
+local function SyncAndFilterCrates(source)
+    InteriorRouting.SyncPlayerInteriorBuckets(source)
+    return InteriorRouting.FilterCratesForPlayer(GetPlayerContext(source))
 end
 
 local function ClearCrateStash(crateId)
@@ -74,17 +69,6 @@ local function ClearCrateStash(crateId)
         end
     end
 end
-
-local function FilterCratesForRoute(route)
-    local filtered = {}
-    for crateId, crate in pairs(_activeCrates) do
-        if (crate.route or 0) == route then
-            filtered[crateId] = crate
-        end
-    end
-    return filtered
-end
-
 
 local function PrepareCratesForClient(crates)
     local prepared = {}
@@ -122,12 +106,21 @@ local function InitDatabase()
             `heading` FLOAT NOT NULL,
             `has_password` BOOLEAN NOT NULL DEFAULT FALSE,
             `password_hash` VARCHAR(255) DEFAULT NULL,
+            `apartment_id` VARCHAR(100) DEFAULT NULL,
+            `property_id` VARCHAR(100) DEFAULT NULL,
+            `last_bucket` INT(11) DEFAULT NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
             KEY `owner_sid` (`owner_sid`),
-            KEY `crate_id` (`crate_id`)
+            KEY `crate_id` (`crate_id`),
+            KEY `apartment_owner` (`owner_sid`, `apartment_id`),
+            KEY `property_owner` (`owner_sid`, `property_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
+
+    MySQL.Sync.execute("ALTER TABLE `storage_crates` ADD COLUMN IF NOT EXISTS `apartment_id` VARCHAR(100) NULL DEFAULT NULL")
+    MySQL.Sync.execute("ALTER TABLE `storage_crates` ADD COLUMN IF NOT EXISTS `property_id` VARCHAR(100) NULL DEFAULT NULL")
+    MySQL.Sync.execute("ALTER TABLE `storage_crates` ADD COLUMN IF NOT EXISTS `last_bucket` INT(11) NULL DEFAULT NULL")
 end
 
 
@@ -136,6 +129,7 @@ AddEventHandler('onResourceStart', function(resourceName)
     
     CreateThread(function()
         Wait(1000)
+        InitDatabase()
         LoadAllCrates()
     end)
 end)
@@ -162,18 +156,26 @@ function LoadAllCrates()
                 goto continue
             end
             
-            _activeCrates[crateId] = {
+            local legacyRoute = tonumber(coords.route) or 0
+            local lastBucket = crate.last_bucket ~= nil and tonumber(crate.last_bucket) or legacyRoute
+
+            local crateData = {
                 id = crate.id,
                 crateId = crateId,
                 ownerSid = NormalizeSid(crate.owner_sid),
                 tier = crate.tier,
                 model = tonumber(crate.model) or crate.model,
                 coords = vector3(coords.x, coords.y, coords.z),
-                route = tonumber(coords.route) or 0,
                 heading = crate.heading or 0.0,
                 hasPassword = ToBool(crate.has_password),
                 passwordHash = crate.password_hash,
+                apartmentId = crate.apartment_id,
+                propertyId = crate.property_id,
+                lastBucket = lastBucket,
             }
+
+            InteriorRouting.ApplyResolvedRoute(crateData)
+            _activeCrates[crateId] = crateData
             exports[GetCurrentResourceName()]:EnsureStashExists(crateId, crate.tier)
             ::continue::
         end
@@ -185,12 +187,13 @@ function LoadAllCrates()
         for _, playerId in ipairs(players) do
             local source = tonumber(playerId)
             if source then
-                local route = GetRoute(source)
-                local filtered = FilterCratesForRoute(route)
+                local filtered = SyncAndFilterCrates(source)
                 local preparedCrates = PrepareCratesForClient(filtered)
-                print(("[STORAGE-CRATES] Sending %d crates to player %d (restart route=%d)"):format(
+                local ctx = GetPlayerContext(source)
+                print(("[STORAGE-CRATES] Sending %d crates to player %d (bucket=%d)"):format(
                     (function(t) local c=0 for _ in pairs(t) do c=c+1 end return c end)(filtered),
-                    source, route
+                    source,
+                    ctx.bucket or 0
                 ))
                 TriggerLatentClientEvent('StorageCrates:Client:SetupCrates', source, 50000, preparedCrates)
             end
@@ -258,22 +261,14 @@ RegisterNetEvent('StorageCrates:Server:RequestCrateInfo', function()
     
     local ownerSid = NormalizeSid(char:GetData("SID"))
     local crateInfos = {}
-    local route = GetRoute(source)
+    local ctx = GetPlayerContext(source)
     
     for crateId, crate in pairs(_activeCrates) do
-        if (crate.route or 0) == route then
+        if InteriorRouting.CrateMatchesContext(crate, ctx) then
             crateInfos[crateId] = {
                 isOwner = SidEquals(crate.ownerSid, ownerSid),
                 hasPassword = crate.hasPassword,
             }
-        end
-    end
-
-    if ownerSid and next(_activeCrates) then
-        for crateId, crate in pairs(_activeCrates) do
-            if not SidEquals(crate.ownerSid, ownerSid) then
-                break
-            end
         end
     end
     
@@ -283,13 +278,20 @@ end)
 
 exports['pulsar-core']:MiddlewareAdd("Characters:Spawning", function(source)
     if _activeCrates and next(_activeCrates) then
-        local route = GetRoute(source)
-        local filtered = FilterCratesForRoute(route)
+        local filtered = SyncAndFilterCrates(source)
         local preparedCrates = PrepareCratesForClient(filtered)
         TriggerLatentClientEvent('StorageCrates:Client:SetupCrates', source, 50000, preparedCrates)
     end
 end, 1)
 
+RegisterNetEvent('StorageCrates:Server:SyncInteriorBuckets', function()
+    local source = source
+    InteriorRouting.SyncPlayerInteriorBuckets(source)
+end)
+
+exports['pulsar-core']:MiddlewareAdd("Properties:Enter", function(source, _propertyId)
+    InteriorRouting.SyncPlayerInteriorBuckets(source)
+end, 1)
 
 RegisterNetEvent('StorageCrates:Server:RequestCrates', function()
     local source = source
@@ -299,13 +301,9 @@ RegisterNetEvent('StorageCrates:Server:RequestCrates', function()
     end
     
     if _activeCrates and next(_activeCrates) then
-        local route = GetRoute(source)
-        local filtered = FilterCratesForRoute(route)
-        local crateCount = 0
-        for _ in pairs(filtered) do crateCount = crateCount + 1 end
+        local filtered = SyncAndFilterCrates(source)
         local preparedCrates = PrepareCratesForClient(filtered)
         TriggerLatentClientEvent('StorageCrates:Client:SetupCrates', source, 50000, preparedCrates)
-    else
     end
 end)
 
@@ -344,13 +342,12 @@ function AdminRemoveCrateEntity(crateId)
         model = crate.model,
     }
 
-    SendCrateToRoute("StorageCrates:Client:RemoveCrate", crate.route or 0, crateId, snap)
+    InteriorRouting.SendCrateToInterestedPlayers("StorageCrates:Client:RemoveCrate", crate, crateId, snap)
     return true
 end
 
 function AdminDeleteCrate(crateId)
     local crate = GetCrateInfo(crateId)
-    local route = crate and (crate.route or 0) or 0
     local snap
 
     if crate then
@@ -368,10 +365,10 @@ function AdminDeleteCrate(crateId)
             SetCrateInUse(crateId, nil)
         end
 
-        SendCrateToRoute("StorageCrates:Client:RemoveCrate", route, crateId, snap)
+        InteriorRouting.SendCrateToInterestedPlayers("StorageCrates:Client:RemoveCrate", crate, crateId, snap)
     else
         local row = MySQL.Sync.fetchAll(
-            "SELECT coords, heading, model FROM storage_crates WHERE crate_id = ? LIMIT 1",
+            "SELECT coords, heading, model, apartment_id, property_id, last_bucket FROM storage_crates WHERE crate_id = ? LIMIT 1",
             { crateId }
         )
 
@@ -379,7 +376,14 @@ function AdminDeleteCrate(crateId)
             local success, coords = pcall(json.decode, row[1].coords)
 
             if success and coords and coords.x then
-                route = tonumber(coords.route) or 0
+                local legacyRoute = tonumber(coords.route) or 0
+                local orphanCrate = {
+                    apartmentId = row[1].apartment_id,
+                    propertyId = row[1].property_id,
+                    lastBucket = row[1].last_bucket ~= nil and tonumber(row[1].last_bucket) or legacyRoute,
+                }
+                InteriorRouting.ApplyResolvedRoute(orphanCrate)
+
                 snap = {
                     coords = {
                         x = coords.x,
@@ -389,7 +393,7 @@ function AdminDeleteCrate(crateId)
                     heading = row[1].heading or 0.0,
                     model = tonumber(row[1].model) or row[1].model,
                 }
-                SendCrateToRoute("StorageCrates:Client:RemoveCrate", route, crateId, snap)
+                InteriorRouting.SendCrateToInterestedPlayers("StorageCrates:Client:RemoveCrate", orphanCrate, crateId, snap)
             end
         end
     end
@@ -401,7 +405,7 @@ function AdminDeleteCrate(crateId)
 
     if not deleteOk then
         if crate and snap then
-            SendCrateToRoute("StorageCrates:Client:SpawnCrate", route, crateId, {
+            InteriorRouting.SendCrateToInterestedPlayers("StorageCrates:Client:SpawnCrate", crate, crateId, {
                 model = snap.model,
                 coords = snap.coords,
                 heading = snap.heading,

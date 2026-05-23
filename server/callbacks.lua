@@ -41,15 +41,6 @@ local function Notify(src, notifType, message)
     exports["pulsar-hud"]:Notification(src, notifType, message, 5000)
 end
 
-local function SendCrateToRoute(eventName, route, crateId, data)
-    for _, player in ipairs(GetPlayers()) do
-        local target = tonumber(player)
-
-        if target and (GetPlayerRoutingBucket(target) or 0) == route then
-            TriggerClientEvent(eventName, target, crateId, data)
-        end
-    end
-end
 
 local function RemoveCrateItem(src, sid, item, slot)
     if slot ~= nil then
@@ -130,7 +121,8 @@ Callbacks:RegisterServerCallback("StorageCrates:PlaceCrate", function(source, da
     local coords = data.coords
     local heading = data.heading
     local slot = data.slot
-    local route = GetPlayerRoutingBucket(source) or 0
+    local placementCtx = InteriorRouting.GetPlacementContext(source)
+    local route = placementCtx.bucket or 0
     local tierConfig = Config.CrateTiers[tier]
 
     if not tierConfig then
@@ -143,7 +135,8 @@ Callbacks:RegisterServerCallback("StorageCrates:PlaceCrate", function(source, da
         return
     end
 
-    if route == 0 and (coords.z < Config.MinPlacementHeight or coords.z > Config.MaxPlacementHeight) then
+    if route == 0 and not placementCtx.apartmentId and not placementCtx.propertyId
+        and (coords.z < Config.MinPlacementHeight or coords.z > Config.MaxPlacementHeight) then
         cb(false, "Cannot place crate at this location")
         return
     end
@@ -160,14 +153,13 @@ Callbacks:RegisterServerCallback("StorageCrates:PlaceCrate", function(source, da
         x = coords.x,
         y = coords.y,
         z = coords.z,
-        route = route,
     })
 
     local inserted = MySQL.Sync.execute([[
         INSERT INTO storage_crates
-            (crate_id, owner_sid, tier, model, coords, heading, has_password)
+            (crate_id, owner_sid, tier, model, coords, heading, has_password, apartment_id, property_id, last_bucket)
         VALUES
-            (?, ?, ?, ?, ?, ?, ?)
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         crateId,
         sid,
@@ -176,6 +168,9 @@ Callbacks:RegisterServerCallback("StorageCrates:PlaceCrate", function(source, da
         savedCoords,
         heading,
         false,
+        placementCtx.apartmentId,
+        placementCtx.propertyId,
+        route,
     })
 
     if not inserted then
@@ -192,16 +187,19 @@ Callbacks:RegisterServerCallback("StorageCrates:PlaceCrate", function(source, da
         model = tierConfig.model,
         coords = vector3(coords.x, coords.y, coords.z),
         heading = heading,
-        route = route,
+        apartmentId = placementCtx.apartmentId,
+        propertyId = placementCtx.propertyId,
+        lastBucket = route,
         hasPassword = false,
         passwordHash = nil,
     }
 
+    InteriorRouting.ApplyResolvedRoute(crateInfo)
     _activeCrates[crateId] = crateInfo
 
     exports[GetCurrentResourceName()]:EnsureStashExists(crateId, tier)
 
-    SendCrateToRoute("StorageCrates:Client:SpawnCrate", route, crateId, {
+    InteriorRouting.SendCrateToInterestedPlayers("StorageCrates:Client:SpawnCrate", crateInfo, crateId, {
         model = tierConfig.model,
         coords = {
             x = crateInfo.coords.x,
@@ -358,13 +356,13 @@ Callbacks:RegisterServerCallback("StorageCrates:RemoveCrate", function(source, d
         model = crate.model,
     }
 
-    SendCrateToRoute("StorageCrates:Client:RemoveCrate", crate.route or 0, crateId, snap)
+    InteriorRouting.SendCrateToInterestedPlayers("StorageCrates:Client:RemoveCrate", crate, crateId, snap)
 
     local deletedRows = MySQL.Sync.execute("DELETE FROM storage_crates WHERE crate_id = ?", { crateId })
     local deleteOk = (type(deletedRows) == "number" and deletedRows >= 1) or deletedRows == true
     if not deleteOk then
         exports.ox_inventory:Remove(source, 1, tierItem, 1)
-        SendCrateToRoute("StorageCrates:Client:SpawnCrate", crate.route or 0, crateId, {
+        InteriorRouting.SendCrateToInterestedPlayers("StorageCrates:Client:SpawnCrate", crate, crateId, {
             model = crate.model,
             coords = snap.coords,
             heading = snap.heading,

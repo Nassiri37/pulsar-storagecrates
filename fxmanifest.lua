@@ -27,6 +27,7 @@ server_scripts {
     "@oxmysql/lib/MySQL.lua",
     "@pulsar-core/exports/sv_error.lua",
     "shared/config.lua", -- Ensure config loads on server too
+    "server/interior_routing.lua",
     "server/server.lua",
     "server/callbacks.lua",
     "server/items.lua"
