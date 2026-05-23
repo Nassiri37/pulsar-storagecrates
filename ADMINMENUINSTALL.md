@@ -69,7 +69,7 @@ end
 
 ---
 
-# 3. Edit `ui/src/containers/groups/links.js`
+# 3. Edit `ui/src/containers/groups/staff.jsx`
 
 ## Add Import
 
@@ -104,6 +104,7 @@ Add underneath:
 ---
 
 ## Add Sidebar Button
+Edit `ui/src/containers/groups/links.js`
 
 Find:
 
